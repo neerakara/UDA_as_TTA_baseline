@@ -37,7 +37,7 @@ lambda_uda = 0.01
 lambda_str = '_lambda_uda' + str(lambda_uda)
 run_num_uda = 1
 run_str_uda = '_r' + str(run_num_uda)
-expname_uda = expname_i2l + '/uda/' + ts_str + lambda_str + run_str_uda + '_debug'
+expname_uda = expname_i2l + '/uda/' + ts_str + lambda_str + run_str_uda + '_all_layers'
 model_handle_discriminator = model_zoo.discriminator
 
 # ======================================================================
@@ -56,12 +56,12 @@ batch_size = 16
 # training settings
 # ======================================================================
 optimizer_handle = tf.train.AdamOptimizer
-learning_rate = 1e-3
+learning_rate = 1e-4
 loss_type_i2l = 'dice'
 
 debug = False
-max_steps = 51
-summary_writing_frequency = 10
+max_steps = 10001
+summary_writing_frequency = 100
 train_eval_frequency = 1000
 val_eval_frequency = 1000
 save_frequency = 1000

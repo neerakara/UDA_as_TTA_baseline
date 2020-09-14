@@ -477,6 +477,9 @@ def run_training(continue_run):
                         saver_best_dice.save(sess, best_file, global_step=step)
                         logging.info('Found new average best dice on validation sets! - %f -  Saving model.' % val_dice)
 
+                # ================================================  
+                # increment step
+                # ================================================  
                 step += 1
                 
         sess.close()

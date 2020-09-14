@@ -7,12 +7,18 @@ from tfwrapper import layers
 # ======================================================================
 # 2D Unet for mapping from images to segmentation labels
 # ======================================================================
-def unet2D_i2l(images, nlabels, training_pl): 
+def unet2D_i2l(images,
+               nlabels,
+               training_pl,
+               scope_reuse = False): 
 
     n0 = 16
     n1, n2, n3, n4 = 1*n0, 2*n0, 4*n0, 8*n0
     
-    with tf.variable_scope('i2l_mapper'):
+    with tf.variable_scope('i2l_mapper') as scope:
+        
+        if scope_reuse:
+            scope.reuse_variables()
         
         # ====================================
         # 1st Conv block - two conv layers, followed by max-pooling
@@ -70,7 +76,7 @@ def unet2D_i2l(images, nlabels, training_pl):
         # ====================================
         pred = layers.conv2D_layer(x=conv7_2, name='pred', num_filters=nlabels, kernel_size=1)
 
-    return pred
+    return pool1, pool2, pool3, conv4_2, conv5_2, conv6_2, conv7_2, pred
 
 # ======================================================================
 # normalization network

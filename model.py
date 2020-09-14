@@ -1,28 +1,60 @@
 import tensorflow as tf
-from tfwrapper import losses
+from tfwrapper import losses, layers
 import matplotlib
 import matplotlib.cm
 
 # ================================================================
+# get the logits from the network
+# also return softmax and final segmentations
 # ================================================================
 def predict_i2l(images,
                 exp_config,
-                training_pl):
-    '''
-    Returns the prediction for an image given a network from the model zoo
-    :param images: An input image tensor
-    :param inference_handle: A model function from the model zoo
-    :return: A prediction mask, and the corresponding softmax output
-    '''
+                training_pl,
+                scope_reuse = False):
 
     logits = exp_config.model_handle_i2l(images,
                                          nlabels = exp_config.nlabels,
-                                         training_pl = training_pl)
+                                         training_pl = training_pl,
+                                         scope_reuse = scope_reuse)[-1]
     
     softmax = tf.nn.softmax(logits)
     mask = tf.argmax(softmax, axis=-1)
 
     return logits, softmax, mask
+
+# ================================================================
+# get features from all levels
+# ================================================================
+def get_all_features(images,
+                     exp_config,
+                     training_pl,
+                     scope_reuse = False):
+
+    features = exp_config.model_handle_i2l(images,
+                                           nlabels = exp_config.nlabels,
+                                           training_pl = training_pl,
+                                           scope_reuse = scope_reuse)[:-1]
+    
+    return features
+
+# ================================================================
+# resize features
+# ================================================================
+def resize_features(features, size, name):
+        
+    for f in range(len(features)):
+        
+        this_feature = features[f]
+        this_feature_resized = layers.bilinear_upsample2D(this_feature,
+                                                          size,
+                                                          name + str(f))
+        if f is 0:
+            features_resized = this_feature_resized
+        else:
+            features_resized = tf.concat((features_resized,
+                                          this_feature_resized), axis=-1)
+            
+    return features_resized
 
 # ================================================================
 # ================================================================

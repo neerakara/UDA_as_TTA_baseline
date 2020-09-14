@@ -1,3 +1,22 @@
+"""
+Implementation of "Kamnitsas 2017a, Unsupervised domain adaptation in brain lesion segmentation with adversarial networks."
+https://arxiv.org/pdf/1612.08894.pdf
+
+Paper summary:
+    We learn domain-invariant features by learning to counter an adversarial network,
+    which attempts to classify the domain of the input data by observing the activations of the segmentation network.
+    
+    The discriminator processes activations at multiple layers of the segmenter.
+    
+    Our main results are based on feeding input to the discriminator
+    from feature maps of layers 4, 6 and 8 of both high and low resolution pathways,
+    as well as the 10th hidden layer of the segmenter.
+    
+    After the feature maps of the low resolution pathway are upsampled, all feature maps are cropped to match the size of
+    the deepest layer and concatenated. A detailed analysis of the effect of adapting
+    different layers is presented in Sec. 3.4.
+"""
+
 # ==================================================================
 # import 
 # ==================================================================
@@ -58,15 +77,27 @@ def run_uda_training(log_dir,
         images_td_normalized, _ = model.normalize(images_td_pl, exp_config, training_pl, scope_reuse = True)
         
         # ================================================================
-        # segmentation network
+        # get logit predictions from the segmentation network
         # ================================================================
-        predicted_seg_sd_logits, _, _ = model.predict_i2l(images_sd_normalized, exp_config, training_pl)
+        predicted_seg_sd_logits, _, _ = model.predict_i2l(images_sd_normalized, exp_config, training_pl, scope_reuse = False)
+        
+        # ================================================================
+        # get all features from the segmentation network
+        # ================================================================
+        seg_features_sd = model.get_all_features(images_sd_normalized, exp_config, training_pl, scope_reuse = True)
+        seg_features_td = model.get_all_features(images_td_normalized, exp_config, training_pl, scope_reuse = True)
+        
+        # ================================================================
+        # resize all features to the same size 
+        # ================================================================
+        images_sd_features_resized = model.resize_features([images_sd_normalized] + list(seg_features_sd), (64, 64), 'resize_sd_xfeat')
+        images_td_features_resized = model.resize_features([images_td_normalized] + list(seg_features_td), (64, 64), 'resize_td_xfeat')        
         
         # ================================================================
         # discriminator on the normalized images
         # ================================================================
-        d_logits_sd = model.discriminator(images_sd_normalized, exp_config, training_pl, scope_reuse = False) 
-        d_logits_td = model.discriminator(images_td_normalized, exp_config, training_pl, scope_reuse = True)
+        d_logits_sd = model.discriminator(images_sd_features_resized, exp_config, training_pl, scope_reuse = False) 
+        d_logits_td = model.discriminator(images_td_features_resized, exp_config, training_pl, scope_reuse = True)
                                         
         # ================================================================
         # add ops for calculation of the discriminator loss 
@@ -262,16 +293,12 @@ def run_uda_training(log_dir,
                 # ================================================               
                 sess.run(train_i2l_op, feed_dict=feed_dict)
                 sess.run(train_discriminator_op, feed_dict=feed_dict)
-                
-                # ================================================  
-                # increment step
-                # ================================================  
-                step += 1
-            
+                            
                 # ===========================
                 # write the summaries and print an overview fairly often
                 # ===========================
                 if (step+1) % exp_config.summary_writing_frequency == 0:                                        
+                    logging.info('============== Updating summary at step %d ' % step) 
                     summary_str = sess.run(summary, feed_dict = feed_dict)
                     summary_writer.add_summary(summary_str, step)
                     summary_writer.flush()
@@ -280,7 +307,7 @@ def run_uda_training(log_dir,
                 # Compute the loss on the entire training set
                 # ===========================
                 if step % exp_config.train_eval_frequency == 0:
-                    logging.info('Training Data Eval:')
+                    logging.info('============== Training Data Eval:')
                     train_loss_seg, train_dice, train_loss_invariance = do_eval(sess,
                                                                                 eval_loss, 
                                                                                 images_sd_pl,
@@ -300,6 +327,7 @@ def run_uda_training(log_dir,
                 # Save a checkpoint periodically
                 # ===========================
                 if step % exp_config.save_frequency == 0:
+                    logging.info('============== Periodically saving checkpoint:')
                     checkpoint_file = os.path.join(log_dir, 'models/model.ckpt')
                     saver.save(sess, checkpoint_file, global_step=step)
 
@@ -307,7 +335,7 @@ def run_uda_training(log_dir,
                 # Evaluate the model periodically on a validation set 
                 # ===========================
                 if step % exp_config.val_eval_frequency == 0:
-                    logging.info('Validation Data Eval:')
+                    logging.info('============== Validation Data Eval:')
                     val_loss_seg, val_dice, val_loss_invariance = do_eval(sess,
                                                                           eval_loss,
                                                                           images_sd_pl,
@@ -331,7 +359,12 @@ def run_uda_training(log_dir,
                         lowest_loss = val_total_loss
                         lowest_loss_file = os.path.join(log_dir, 'models/lowest_loss.ckpt')
                         saver_lowest_loss.save(sess, lowest_loss_file, global_step=step)
-                        logging.info('Found new average best loss on validation set at step %d' % step)
+                        logging.info('******* SAVED MODEL at NEW BEST AVERAGE LOSS on VALIDATION SET at step %d ********' % step)                        
+                        
+                # ================================================  
+                # increment step
+                # ================================================  
+                step += 1
                 
         # ================================================================    
         # close tf session
