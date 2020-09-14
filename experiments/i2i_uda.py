@@ -37,8 +37,15 @@ lambda_uda = 0.01
 lambda_str = '_lambda_uda' + str(lambda_uda)
 run_num_uda = 1
 run_str_uda = '_r' + str(run_num_uda)
-expname_uda = expname_i2l + '/uda/' + ts_str + lambda_str + run_str_uda + '_all_layers'
+
 model_handle_discriminator = model_zoo.discriminator
+model_handle_generator = model_zoo.generator
+lambda_cgan1 = 1.0
+lambda_cgan2 = 1.0
+lambda_cgan3 = 10.0
+lambda_cgan4 = 10.0
+
+expname_uda = expname_i2l + '/uda_cgan/' + ts_str + lambda_str + run_str_uda
 
 # ======================================================================
 # data settings
@@ -50,7 +57,7 @@ image_depth_caltech = 256
 image_depth_stanford = 132
 target_resolution_brain = (0.7, 0.7)
 nlabels = 15
-batch_size = 16
+batch_size = 8
 
 # ======================================================================
 # training settings
@@ -60,7 +67,7 @@ learning_rate = 1e-4
 loss_type_i2l = 'dice'
 
 debug = False
-max_steps = 10001
+max_steps = 50001
 summary_writing_frequency = 100
 train_eval_frequency = 1000
 val_eval_frequency = 1000

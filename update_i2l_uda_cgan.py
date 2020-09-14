@@ -1,20 +1,15 @@
 """
-Implementation of "Kamnitsas 2017a, Unsupervised domain adaptation in brain lesion segmentation with adversarial networks."
-https://arxiv.org/pdf/1612.08894.pdf
+Implementation of "Huo 2018, SynSeg-Net: Synthetic Segmentation Without Target Modality Ground Truth."
+https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8494797
 
 Paper summary:
-    We learn domain-invariant features by learning to counter an adversarial network,
-    which attempts to classify the domain of the input data by observing the activations of the segmentation network.
-    
-    The discriminator processes activations at multiple layers of the segmenter.
-    
-    Our main results are based on feeding input to the discriminator
-    from feature maps of layers 4, 6 and 8 of both high and low resolution pathways,
-    as well as the 10th hidden layer of the segmenter.
-    
-    After the feature maps of the low resolution pathway are upsampled, all feature maps are cropped to match the size of
-    the deepest layer and concatenated. A detailed analysis of the effect of adapting
-    different layers is presented in Sec. 3.4.
+    A 9 block ResNet (defined in [5] and [36]) was employed as the two generators G1 and G2.
+    The generator G1 transferred a real image x in modality S to a synthetic image G1 (x) in modality T,
+    while the generator G2 synthesized a real image y in modality T to a synthetic image G2 (y) in modality S.
+    Next the PatchGAN (defined in [5] and [37]) was used as the two adversarial discriminators D1 and D2.
+    D1 determined whether a provided image is a synthetic image G1 (x) or a real image y,
+    while D2 judged whether a provided image is a synthetic image G2 (y) or a real image x.
+    To be consistent with the cycle synthesis subnet, the same the 9 block ResNet were used as S, whose network structure was identical to G1.
 """
 
 # ==================================================================
@@ -69,50 +64,94 @@ def run_uda_training(log_dir,
         images_td_pl = tf.placeholder(tf.float32, shape = [exp_config.batch_size] + list(exp_config.image_size) + [1], name = 'images_td')   
         labels_sd_pl = tf.placeholder(tf.uint8, shape = [exp_config.batch_size] + list(exp_config.image_size), name = 'labels_sd')
         training_pl = tf.placeholder(tf.bool, shape=[], name = 'training_or_testing')
+        
+        # ================================================================================================================================================= #
+        # ================================================================ CYCLE GAN STUFF ================================================================ #
+        # ================================================================================================================================================= #
+        
+        # ================================================================
+        # transform images in both directions
+        # ================================================================
+        images_sd_to_td = model.transform_images(images_sd_pl, exp_config, training_pl, scope_name = 'generator_sd_to_td', scope_reuse = False)
+        images_td_to_sd = model.transform_images(images_td_pl, exp_config, training_pl, scope_name = 'generator_td_to_sd', scope_reuse = False)
+
+        # ================================================================
+        # cycle transformations in both directions
+        # ================================================================        
+        images_sd_to_td_to_sd = model.transform_images(images_sd_to_td, exp_config, training_pl, scope_name = 'generator_td_to_sd', scope_reuse = True)
+        images_td_to_sd_to_td = model.transform_images(images_td_to_sd, exp_config, training_pl, scope_name = 'generator_sd_to_td', scope_reuse = True)
+        
+        # ================================================================
+        # discriminate in both directions
+        # ================================================================
+        d_sd_logits_real = model.discriminator(images_sd_pl, exp_config, training_pl, scope_name = 'discriminator_sd', scope_reuse = False) 
+        d_td_logits_real = model.discriminator(images_td_pl, exp_config, training_pl, scope_name = 'discriminator_td', scope_reuse = False)         
+        d_sd_logits_fake = model.discriminator(images_td_to_sd, exp_config, training_pl, scope_name = 'discriminator_sd', scope_reuse = True)
+        d_td_logits_fake = model.discriminator(images_sd_to_td, exp_config, training_pl, scope_name = 'discriminator_td', scope_reuse = True)
+        
+        # ================================================================
+        # cycle gan losses
+        # ================================================================
+        
+        # ==================================
+        # discriminator_sd loss 
+        # ==================================
+        d_sd_loss_real = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.ones_like(d_sd_logits_real), logits=d_sd_logits_real)
+        d_sd_loss_fake = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.zeros_like(d_sd_logits_fake), logits=d_sd_logits_fake) 
+        loss_d_sd_op = tf.reduce_mean(d_sd_loss_real + d_sd_loss_fake)     
+        tf.summary.scalar('tr_losses/loss_discriminator_sd', loss_d_sd_op) 
+        
+        # ==================================
+        # discriminator_td loss 
+        # ==================================
+        d_td_loss_real = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.ones_like(d_td_logits_real), logits=d_td_logits_real)
+        d_td_loss_fake = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.zeros_like(d_td_logits_fake), logits=d_td_logits_fake) 
+        loss_d_td_op = tf.reduce_mean(d_td_loss_real + d_td_loss_fake)     
+        tf.summary.scalar('tr_losses/loss_discriminator_td', loss_d_td_op) 
+
+        # ==================================
+        # gan losses for generator sd to td
+        # ==================================
+        loss_g_sd_to_td_op = model.loss_invariance(d_td_logits_fake)
+        tf.summary.scalar('tr_losses/loss_generator_sd_to_td', loss_g_sd_to_td_op) 
+                
+        # ==================================
+        # gan losses for generator td to sd
+        # ==================================
+        loss_g_td_to_sd_op = model.loss_invariance(d_sd_logits_fake)
+        tf.summary.scalar('tr_losses/loss_generator_td_to_sd', loss_g_td_to_sd_op) 
+        
+        # ==================================
+        # cycle consistency losses
+        # ==================================
+        loss_cycle_sd = tf.reduce_mean(tf.abs(images_sd_to_td_to_sd - images_sd_pl))
+        loss_cycle_td = tf.reduce_mean(tf.abs(images_td_to_sd_to_td - images_td_pl))
+        tf.summary.scalar('tr_losses/loss_cycle_sd', loss_cycle_sd) 
+        tf.summary.scalar('tr_losses/loss_cycle_td', loss_cycle_td) 
+
+        # ================================================================
+        # total training loss for cgan
+        # ================================================================
+        loss_cgan_op = (exp_config.lambda_cgan1 * loss_g_sd_to_td_op + 
+                        exp_config.lambda_cgan2 * loss_g_td_to_sd_op + 
+                        exp_config.lambda_cgan3 * loss_cycle_sd + 
+                        exp_config.lambda_cgan4 * loss_cycle_td)                       
+        tf.summary.scalar('tr_losses/loss_total_cgan', loss_cgan_op)
+        
+        # ================================================================================================================================================= #
+        # ============================================================== SEGMENTATION STUFF =============================================================== #
+        # ================================================================================================================================================= #
 
         # ================================================================
         # insert a normalization module in front of the segmentation network
         # ================================================================
-        images_sd_normalized, _ = model.normalize(images_sd_pl, exp_config, training_pl, scope_reuse = False)
-        images_td_normalized, _ = model.normalize(images_td_pl, exp_config, training_pl, scope_reuse = True)
+        images_sd_to_td_normalized, _ = model.normalize(images_sd_to_td, exp_config, training_pl, scope_reuse = False)
         
         # ================================================================
         # get logit predictions from the segmentation network
         # ================================================================
-        predicted_seg_sd_logits, _, _ = model.predict_i2l(images_sd_normalized, exp_config, training_pl, scope_reuse = False)
-        
-        # ================================================================
-        # get all features from the segmentation network
-        # ================================================================
-        seg_features_sd = model.get_all_features(images_sd_normalized, exp_config, scope_reuse = True)
-        seg_features_td = model.get_all_features(images_td_normalized, exp_config, scope_reuse = True)
-        
-        # ================================================================
-        # resize all features to the same size 
-        # ================================================================
-        images_sd_features_resized = model.resize_features([images_sd_normalized] + list(seg_features_sd), (64, 64), 'resize_sd_xfeat')
-        images_td_features_resized = model.resize_features([images_td_normalized] + list(seg_features_td), (64, 64), 'resize_td_xfeat')        
-        
-        # ================================================================
-        # discriminator on features
-        # ================================================================
-        d_logits_sd = model.discriminator(images_sd_features_resized, exp_config, training_pl, scope_reuse = False) 
-        d_logits_td = model.discriminator(images_td_features_resized, exp_config, training_pl, scope_reuse = True)
-                                        
-        # ================================================================
-        # add ops for calculation of the discriminator loss 
-        # ================================================================
-        d_loss_sd = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.ones_like(d_logits_sd), logits=d_logits_sd)
-        d_loss_td = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.zeros_like(d_logits_td), logits=d_logits_td) 
-        loss_d_op = tf.reduce_mean(d_loss_sd + d_loss_td)     
-        tf.summary.scalar('tr_losses/loss_discriminator', loss_d_op) 
-
-        # ================================================================
-        # add ops for calculation of the adversarial loss that tries to get domain invariant features in the normalized image space
-        # ================================================================
-        loss_g_op = model.loss_invariance(d_logits_td)
-        tf.summary.scalar('tr_losses/loss_invariant_features', loss_g_op) 
-        
+        predicted_seg_sd_logits, _, _ = model.predict_i2l(images_sd_to_td_normalized, exp_config, training_pl, scope_reuse = False)
+                                                        
         # ================================================================
         # add ops for calculation of the supervised segmentation loss
         # ================================================================
@@ -121,13 +160,7 @@ def run_uda_training(log_dir,
                                  nlabels = exp_config.nlabels,
                                  loss_type = exp_config.loss_type_i2l)        
         tf.summary.scalar('tr_losses/loss_segmentation', loss_seg_op)
-        
-        # ================================================================
-        # total training loss for uda
-        # ================================================================
-        loss_total_op = loss_seg_op + exp_config.lambda_uda * loss_g_op
-        tf.summary.scalar('tr_losses/loss_total_uda', loss_total_op)
-        
+                
         # ================================================================
         # merge all summaries
         # ================================================================
@@ -138,7 +171,10 @@ def run_uda_training(log_dir,
         # ================================================================
         i2l_vars = []
         normalization_vars = []
-        discriminator_vars = []
+        
+        discriminator_sd_vars = []
+        discriminator_td_vars = []
+        generator_vars = []
         
         for v in tf.global_variables():
             var_name = v.name        
@@ -147,32 +183,50 @@ def run_uda_training(log_dir,
                 i2l_vars.append(v) # the normalization vars also need to be restored from the pre-trained i2l mapper
             elif 'i2l_mapper' in var_name:
                 i2l_vars.append(v)
-            elif 'discriminator' in var_name:
-                discriminator_vars.append(v)
+            elif 'discriminator_sd' in var_name:
+                discriminator_sd_vars.append(v)
+            elif 'discriminator_td' in var_name:
+                discriminator_td_vars.append(v)
+            elif 'generator' in var_name:
+                generator_vars.append(v)
                                 
         # ================================================================
         # add optimization ops
         # ================================================================
-        train_i2l_op = model.training_step(loss_total_op,
+        train_i2l_op = model.training_step(loss_seg_op,
                                            i2l_vars,
                                            exp_config.optimizer_handle,
                                            learning_rate = exp_config.learning_rate)
-        
-        train_discriminator_op = model.training_step(loss_d_op,
-                                                     discriminator_vars,
-                                                     exp_config.optimizer_handle,
-                                                     learning_rate = exp_config.learning_rate)
 
+        train_generators_op = model.training_step(loss_cgan_op,
+                                                  generator_vars,
+                                                  exp_config.optimizer_handle,
+                                                  learning_rate = exp_config.learning_rate)
+        
+        train_discriminator_sd_op = model.training_step(loss_d_sd_op,
+                                                        discriminator_sd_vars,
+                                                        exp_config.optimizer_handle,
+                                                        learning_rate = exp_config.learning_rate)
+        
+        train_discriminator_td_op = model.training_step(loss_d_td_op,
+                                                        discriminator_td_vars,
+                                                        exp_config.optimizer_handle,
+                                                        learning_rate = exp_config.learning_rate)
+        
         # ================================================================
         # add ops for model evaluation
         # ================================================================
-        eval_loss = model.evaluation_i2l_uda_feature_invariance(predicted_seg_sd_logits,
-                                                                labels_sd_pl,
-                                                                images_sd_pl,
-                                                                d_logits_td,
-                                                                nlabels = exp_config.nlabels,
-                                                                loss_type = exp_config.loss_type_i2l)
-                
+        eval_loss = model.evaluation_i2l_uda_cycle_gan(predicted_seg_sd_logits,
+                                                       labels_sd_pl,    
+                                                       images_sd_pl,
+                                                       images_td_pl,
+                                                       images_sd_to_td_to_sd,
+                                                       images_td_to_sd_to_td,
+                                                       d_sd_logits_fake,
+                                                       d_td_logits_fake,
+                                                       nlabels = exp_config.nlabels,
+                                                       loss_type = exp_config.loss_type_i2l)
+                              
         # ================================================================
         # build the summary Tensor based on the TF collection of Summaries.
         # ================================================================
@@ -203,7 +257,8 @@ def run_uda_training(log_dir,
         # create savers
         # ================================================================
         saver = tf.train.Saver(var_list = i2l_vars)
-        saver_lowest_loss = tf.train.Saver(var_list = i2l_vars, max_to_keep=3)    
+        saver_lowest_loss = tf.train.Saver(var_list = i2l_vars, max_to_keep=3)
+        saver_generators = tf.train.Saver(var_list = generator_vars)
         
         # ================================================================
         # summaries of the validation errors
@@ -212,11 +267,27 @@ def run_uda_training(log_dir,
         vl_error_seg_summary = tf.summary.scalar('validation/loss_seg', vl_error_seg)
         vl_dice = tf.placeholder(tf.float32, shape=[], name='vl_dice')
         vl_dice_summary = tf.summary.scalar('validation/dice', vl_dice)
-        vl_error_invariance = tf.placeholder(tf.float32, shape=[], name='vl_error_invariance')
-        vl_error_invariance_summary = tf.summary.scalar('validation/loss_invariance', vl_error_invariance)
+        vl_error_invariance_sd = tf.placeholder(tf.float32, shape=[], name='vl_error_invariance_sd')
+        vl_error_invariance_sd_summary = tf.summary.scalar('validation/loss_invariance_sd', vl_error_invariance_sd)
+        vl_error_invariance_td = tf.placeholder(tf.float32, shape=[], name='vl_error_invariance_td')
+        vl_error_invariance_td_summary = tf.summary.scalar('validation/loss_invariance_td', vl_error_invariance_td)
+        vl_error_cycle_sd = tf.placeholder(tf.float32, shape=[], name='vl_error_cycle_sd')
+        vl_error_cycle_sd_summary = tf.summary.scalar('validation/loss_cycle_sd', vl_error_cycle_sd)
+        vl_error_cycle_td = tf.placeholder(tf.float32, shape=[], name='vl_error_cycle_td')
+        vl_error_cycle_td_summary = tf.summary.scalar('validation/loss_cycle_td', vl_error_cycle_td)
+        vl_error_cgan_total = tf.placeholder(tf.float32, shape=[], name='vl_error_cgan_total')
+        vl_error_cgan_total_summary = tf.summary.scalar('validation/loss_cgan_total', vl_error_cgan_total)
         vl_error_total = tf.placeholder(tf.float32, shape=[], name='vl_error_total')
         vl_error_total_summary = tf.summary.scalar('validation/loss_total', vl_error_total)
-        vl_summary = tf.summary.merge([vl_error_seg_summary, vl_dice_summary, vl_error_invariance_summary, vl_error_total_summary])
+        
+        vl_summary = tf.summary.merge([vl_error_seg_summary,
+                                       vl_dice_summary,
+                                       vl_error_invariance_sd_summary,
+                                       vl_error_invariance_td_summary,
+                                       vl_error_cycle_sd_summary,
+                                       vl_error_cycle_td_summary,
+                                       vl_error_cgan_total_summary,
+                                       vl_error_total_summary])
 
         # ================================================================
         # summaries of the training errors
@@ -225,11 +296,27 @@ def run_uda_training(log_dir,
         tr_error_seg_summary = tf.summary.scalar('training/loss_seg', tr_error_seg)
         tr_dice = tf.placeholder(tf.float32, shape=[], name='tr_dice')
         tr_dice_summary = tf.summary.scalar('training/dice', tr_dice)
-        tr_error_invariance = tf.placeholder(tf.float32, shape=[], name='tr_error_invariance')
-        tr_error_invariance_summary = tf.summary.scalar('training/loss_invariance', tr_error_invariance)
+        tr_error_invariance_sd = tf.placeholder(tf.float32, shape=[], name='tr_error_invariance_sd')
+        tr_error_invariance_sd_summary = tf.summary.scalar('training/loss_invariance_sd', tr_error_invariance_sd)
+        tr_error_invariance_td = tf.placeholder(tf.float32, shape=[], name='tr_error_invariance_td')
+        tr_error_invariance_td_summary = tf.summary.scalar('training/loss_invariance_td', tr_error_invariance_td)
+        tr_error_cycle_sd = tf.placeholder(tf.float32, shape=[], name='tr_error_cycle_sd')
+        tr_error_cycle_sd_summary = tf.summary.scalar('training/loss_cycle_sd', tr_error_cycle_sd)
+        tr_error_cycle_td = tf.placeholder(tf.float32, shape=[], name='tr_error_cycle_td')
+        tr_error_cycle_td_summary = tf.summary.scalar('training/loss_cycle_td', tr_error_cycle_td)
+        tr_error_cgan_total = tf.placeholder(tf.float32, shape=[], name='tr_error_cgan_total')
+        tr_error_cgan_total_summary = tf.summary.scalar('training/loss_cgan_total', tr_error_cgan_total)
         tr_error_total = tf.placeholder(tf.float32, shape=[], name='tr_error_total')
         tr_error_total_summary = tf.summary.scalar('training/loss_total', tr_error_total)
-        tr_summary = tf.summary.merge([tr_error_seg_summary, tr_dice_summary, tr_error_invariance_summary, tr_error_total_summary])
+        
+        tr_summary = tf.summary.merge([tr_error_seg_summary,
+                                       tr_dice_summary,
+                                       tr_error_invariance_sd_summary,
+                                       tr_error_invariance_td_summary,
+                                       tr_error_cycle_sd_summary,
+                                       tr_error_cycle_td_summary,
+                                       tr_error_cgan_total_summary,
+                                       tr_error_total_summary])
                         
         # ================================================================
         # freeze the graph before execution
@@ -260,11 +347,11 @@ def run_uda_training(log_dir,
         # Restore the segmentation network parameters and the pre-trained i2i mapper parameters
         # After the adaptation for the 1st TD subject is done, start the adaptation for the subsequent subjects with those parameters
         # ================================================================
-        logging.info('============================================================')        
-        path_to_model = sys_config.log_root + exp_config.expname_i2l + '/models/'
-        checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'best_dice.ckpt')
-        logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
-        saver_lowest_loss.restore(sess, checkpoint_path)
+        # logging.info('============================================================')        
+        # path_to_model = sys_config.log_root + exp_config.expname_i2l + '/models/'
+        # checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'best_dice.ckpt')
+        # logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
+        # saver_lowest_loss.restore(sess, checkpoint_path)
                                
         # ================================================================
         # run training steps
@@ -293,11 +380,13 @@ def run_uda_training(log_dir,
                              training_pl: True}
                 
                 # ================================================     
-                # update i2l and D successively
+                # update i2l (S), G1&G2, D1 and D2 successively
                 # ================================================               
                 sess.run(train_i2l_op, feed_dict=feed_dict)
-                sess.run(train_discriminator_op, feed_dict=feed_dict)
-                            
+                sess.run(train_generators_op, feed_dict=feed_dict)
+                sess.run(train_discriminator_sd_op, feed_dict=feed_dict)
+                sess.run(train_discriminator_td_op, feed_dict=feed_dict)
+                                            
                 # ===========================
                 # write the summaries and print an overview fairly often
                 # ===========================
@@ -312,24 +401,39 @@ def run_uda_training(log_dir,
                 # ===========================
                 if step % exp_config.train_eval_frequency == 0:
                     logging.info('============== Training Data Eval:')
-                    train_loss_seg, train_dice, train_loss_invariance = do_eval(sess,
-                                                                                eval_loss, 
-                                                                                images_sd_pl,
-                                                                                labels_sd_pl,
-                                                                                images_td_pl,
-                                                                                training_pl,
-                                                                                images_sd_tr,
-                                                                                labels_sd_tr,
-                                                                                images_td_tr,
-                                                                                exp_config.batch_size)
+                    train_loss_seg, train_dice, train_loss_invar_sd, train_loss_invar_td, train_loss_cycle_sd, train_loss_cycle_td = do_eval(sess,
+                                                                                                                                             eval_loss, 
+                                                                                                                                             images_sd_pl,
+                                                                                                                                             labels_sd_pl,
+                                                                                                                                             images_td_pl,
+                                                                                                                                             training_pl,
+                                                                                                                                             images_sd_tr,
+                                                                                                                                             labels_sd_tr,
+                                                                                                                                             images_td_tr,
+                                                                                                                                             exp_config.batch_size)                    
+                    # ===========================
+                    # total cgan loss
+                    # ===========================
+                    train_loss_cgan = (exp_config.lambda_cgan1 * train_loss_invar_sd + 
+                                       exp_config.lambda_cgan2 * train_loss_invar_td + 
+                                       exp_config.lambda_cgan3 * train_loss_cycle_sd + 
+                                       exp_config.lambda_cgan4 * train_loss_cycle_td)
+
+                    # ===========================
+                    # total cgan loss + seg loss
+                    # ===========================                    
+                    train_total_loss = train_loss_seg + train_loss_cgan
                     
-                    # total training loss
-                    train_total_loss = train_loss_seg + exp_config.lambda_uda * train_loss_invariance
-                    
-                    # write summary
+                    # ===========================
+                    # update tensorboard summary
+                    # ===========================                    
                     tr_summary_msg = sess.run(tr_summary, feed_dict={tr_error_seg: train_loss_seg,
                                                                      tr_dice: train_dice,
-                                                                     tr_error_invariance: train_loss_invariance,
+                                                                     tr_error_invariance_sd: train_loss_invar_sd,
+                                                                     tr_error_invariance_td: train_loss_invar_td,
+                                                                     tr_error_cycle_sd: train_loss_cycle_sd,
+                                                                     tr_error_cycle_td: train_loss_cycle_td,
+                                                                     tr_error_cgan_total: train_loss_cgan,
                                                                      tr_error_total: train_total_loss})
                     summary_writer.add_summary(tr_summary_msg, step)
                     
@@ -346,35 +450,55 @@ def run_uda_training(log_dir,
                 # ===========================
                 if step % exp_config.val_eval_frequency == 0:
                     logging.info('============== Validation Data Eval:')
-                    val_loss_seg, val_dice, val_loss_invariance = do_eval(sess,
-                                                                          eval_loss,
-                                                                          images_sd_pl,
-                                                                          labels_sd_pl,
-                                                                          images_td_pl,
-                                                                          training_pl,
-                                                                          images_sd_vl,
-                                                                          labels_sd_vl,
-                                                                          images_td_vl,
-                                                                          exp_config.batch_size)
+                    val_loss_seg, val_dice, val_loss_invar_sd, val_loss_invar_td, val_loss_cycle_sd, val_loss_cycle_td = do_eval(sess,
+                                                                                                                                 eval_loss,
+                                                                                                                                 images_sd_pl,
+                                                                                                                                 labels_sd_pl,
+                                                                                                                                 images_td_pl,
+                                                                                                                                 training_pl,
+                                                                                                                                 images_sd_vl,
+                                                                                                                                 labels_sd_vl,
+                                                                                                                                 images_td_vl,
+                                                                                                                                 exp_config.batch_size)
                     
-                    # total val loss
-                    val_total_loss = val_loss_seg + exp_config.lambda_uda * val_loss_invariance
+                    # ===========================
+                    # total cgan loss
+                    # ===========================
+                    val_loss_cgan = (exp_config.lambda_cgan1 * val_loss_invar_sd + 
+                                     exp_config.lambda_cgan2 * val_loss_invar_td + 
+                                     exp_config.lambda_cgan3 * val_loss_cycle_sd + 
+                                     exp_config.lambda_cgan4 * val_loss_cycle_td)
+
+                    # ===========================
+                    # total cgan loss + seg loss
+                    # ===========================                    
+                    val_total_loss = val_loss_seg + val_loss_cgan
                     
-                    # write summary
+                    # ===========================
+                    # update tensorboard summary
+                    # ===========================
                     vl_summary_msg = sess.run(vl_summary, feed_dict={vl_error_seg: val_loss_seg,
                                                                      vl_dice: val_dice,
-                                                                     vl_error_invariance: val_loss_invariance,
-                                                                     vl_error_total: val_total_loss})                
+                                                                     vl_error_invariance_sd: val_loss_invar_sd,
+                                                                     vl_error_invariance_td: val_loss_invar_td,
+                                                                     vl_error_cycle_sd: val_loss_cycle_sd,
+                                                                     vl_error_cycle_td: val_loss_cycle_td,
+                                                                     vl_error_cgan_total: val_loss_cgan,
+                                                                     vl_error_total: val_total_loss})
+                    
                     summary_writer.add_summary(vl_summary_msg, step)
 
                     # ===========================
                     # save model if the val dice is the best yet
-                    # ===========================
+                    # ===========================        
                     if val_total_loss < lowest_loss:
                         lowest_loss = val_total_loss
                         lowest_loss_file = os.path.join(log_dir, 'models/lowest_loss.ckpt')
                         saver_lowest_loss.save(sess, lowest_loss_file, global_step=step)
-                        logging.info('******* SAVED MODEL at NEW BEST AVERAGE LOSS on VALIDATION SET at step %d ********' % step)                        
+                        logging.info('******* SAVED MODEL at NEW BEST AVERAGE LOSS on VALIDATION SET at step %d ********' % step)
+                        
+                        # also save generators at the best loss points
+                        saver_generators.save(sess, os.path.join(log_dir, 'models/generators_at_lowest_loss.ckpt'), global_step=step)
                         
                 # ================================================  
                 # increment step
@@ -402,7 +526,10 @@ def do_eval(sess,
             batch_size):
 
     loss_seg_ii = 0
-    loss_invar_ii = 0
+    loss_invar_sd_ii = 0
+    loss_invar_td_ii = 0
+    loss_cycle_sd_ii = 0
+    loss_cycle_td_ii = 0
     dice_ii = 0
     num_batches = 0
 
@@ -418,20 +545,28 @@ def do_eval(sess,
                      images_td_placeholder: x_td,
                      training_time_placeholder: False}
         
-        loss_seg, fg_dice, loss_invariance = sess.run(eval_loss, feed_dict=feed_dict)
+        loss_seg, fg_dice, loss_invar_sd, loss_invar_td, loss_cycle_sd, loss_cycle_td = sess.run(eval_loss, feed_dict=feed_dict)
         
         loss_seg_ii += loss_seg
-        loss_invar_ii += loss_invariance
+        loss_invar_sd_ii += loss_invar_sd
+        loss_invar_td_ii += loss_invar_td
+        loss_cycle_sd_ii += loss_invar_sd
+        loss_cycle_td_ii += loss_invar_td
         dice_ii += fg_dice
         num_batches += 1
 
     avg_loss_seg = loss_seg_ii / num_batches
-    avg_loss_invar = loss_invar_ii / num_batches
+    avg_loss_invar_sd = loss_invar_sd_ii / num_batches
+    avg_loss_invar_td = loss_invar_td_ii / num_batches
+    avg_loss_cycle_sd = loss_cycle_sd_ii / num_batches
+    avg_loss_cycle_td = loss_cycle_td_ii / num_batches
     avg_dice = dice_ii / num_batches
 
-    logging.info('  Average segmentation loss: %.4f, average dice: %.4f, average invariance loss: %.4f' % (avg_loss_seg, avg_dice, avg_loss_invar))
+    logging.info('  Average segmentation loss: %.4f, average dice: %.4f' % (avg_loss_seg, avg_dice))
+    logging.info('  Average invar loss SD: %.4f, Average invar loss TD: %.4f' % (avg_loss_invar_sd, avg_loss_invar_td))
+    logging.info('  Average cycle loss SD: %.4f, Average cycle loss TD: %.4f' % (avg_loss_cycle_sd, avg_loss_cycle_td))
 
-    return avg_loss_seg, avg_dice, avg_loss_invar
+    return avg_loss_seg, avg_dice, avg_loss_invar_sd, avg_loss_invar_td, avg_loss_cycle_sd, avg_loss_cycle_td
 
 # ==================================================================
 # ==================================================================

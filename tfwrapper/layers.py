@@ -85,21 +85,24 @@ def max_pool_layer2d(x,
     return op
     
 ## ======================================================================
-# conv layer with adaptive batch normalization: convolution, followed by batch norm, followed by activation
+# convolution layer
 ## ======================================================================
 def conv2D_layer(x,
                  name,
                  kernel_size=3,
                  num_filters=32,
                  strides=1,
-                 padding="SAME"):
+                 padding="SAME",
+                 activation=tf.identity):
 
     conv = tf.layers.conv2d(inputs=x,
                             filters=num_filters,
                             kernel_size=kernel_size,
                             padding=padding,
                             name=name,
-                            use_bias=False)    
+                            use_bias=False) 
+    
+    conv = activation(conv)
     
     return conv
 

@@ -27,16 +27,15 @@ def predict_i2l(images,
 # ================================================================
 def get_all_features(images,
                      exp_config,
-                     training_pl,
                      scope_reuse = False):
 
     features = exp_config.model_handle_i2l(images,
                                            nlabels = exp_config.nlabels,
-                                           training_pl = training_pl,
+                                           training_pl = False,
                                            scope_reuse = scope_reuse)[:-1]
     
     return features
-
+    
 # ================================================================
 # resize features
 # ================================================================
@@ -71,15 +70,33 @@ def normalize(images,
     return images_normalized, added_residual
 
 # ================================================================
+# image to image transformation wrapper
+# ================================================================
+def transform_images(images,
+                     exp_config,
+                     training_pl,
+                     scope_name = 'generator',
+                     scope_reuse = False):
+
+    transformed_images = exp_config.model_handle_generator(images,
+                                                           training_pl = training_pl,
+                                                           scope_name = scope_name,
+                                                           scope_reuse = scope_reuse)
+    
+    return transformed_images
+
+# ================================================================
 # ================================================================
 def discriminator(images,
                   exp_config,
                   training_pl,
+                  scope_name = 'dicriminator',
                   scope_reuse = False):
     
     logits = exp_config.model_handle_discriminator(images,
                                                    training_pl,
-                                                   scope_reuse)
+                                                   scope_name = scope_name,
+                                                   scope_reuse = scope_reuse)
     
     return logits
     
@@ -134,15 +151,7 @@ def training_step(loss,
                   var_list,
                   optimizer_handle,
                   learning_rate):
-    '''
-    Creates the optimisation operation which is executed in each training iteration of the network
-    :param loss: The loss to be minimised
-    :var_list: list of params that this loss should be optimized wrt.
-    :param optimizer_handle: A handle to one of the tf optimisers 
-    :param learning_rate: Learning rate
-    :return: The training operation
-    '''
-
+    
     optimizer = optimizer_handle(learning_rate = learning_rate) 
     train_op = optimizer.minimize(loss, var_list = var_list)  
     opt_memory_update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -182,12 +191,12 @@ def evaluate_losses(logits,
 
 # ================================================================
 # ================================================================
-def evaluation_i2l(logits_sd,
-                   labels_sd,
-                   images_sd,
-                   d_logits_td,
-                   nlabels,
-                   loss_type):
+def evaluation_i2l_uda_feature_invariance(logits_sd,
+                                          labels_sd,
+                                          images_sd,
+                                          d_logits_td,
+                                          nlabels,
+                                          loss_type):
 
     # =================
     # compute segmentation loss and foreground dice
@@ -196,7 +205,6 @@ def evaluation_i2l(logits_sd,
                                                                                          labels_sd,
                                                                                          nlabels,
                                                                                          loss_type)
-    
     # =================
     # compute feature invariance loss
     # =================
@@ -225,6 +233,62 @@ def evaluation_i2l(logits_sd,
     tf.summary.image('example_images', tf.concat([img1, img2, img3], axis=0))
 
     return supervised_loss, mean_dice, invariance_loss
+
+# ================================================================
+# ================================================================
+def evaluation_i2l_uda_cycle_gan(logits_sd,
+                                 labels_sd,
+                                 images_sd,
+                                 images_td,
+                                 images_sd_to_td_to_sd,
+                                 images_td_to_sd_to_td,
+                                 d_logits_sd_fake,
+                                 d_logits_td_fake,
+                                 nlabels,
+                                 loss_type):
+
+    # =================
+    # compute segmentation loss and foreground dice
+    # =================
+    supervised_loss, dice_all_imgs_all_labels, mean_dice, mean_dice_fg = evaluate_losses(logits_sd,
+                                                                                         labels_sd,
+                                                                                         nlabels,
+                                                                                         loss_type)
+    # =================
+    # compute invariance losses
+    # =================
+    invariance_loss_sd = loss_invariance(d_logits_sd_fake)
+    invariance_loss_td = loss_invariance(d_logits_td_fake)
+    
+    # =================
+    # compute cycle consistency losses
+    # =================
+    cycle_loss_sd = tf.reduce_mean(tf.abs(images_sd_to_td_to_sd - images_sd))
+    cycle_loss_td = tf.reduce_mean(tf.abs(images_td_to_sd_to_td - images_td))
+    
+    # =================
+    # write some segmentations to tensorboard
+    # =================
+    mask = tf.argmax(tf.nn.softmax(logits_sd, axis=-1), axis=-1)
+    mask_gt = labels_sd
+    
+    gt1 = prepare_tensor_for_summary(mask_gt, mode='mask', n_idx_batch=0, nlabels=nlabels)
+    gt2 = prepare_tensor_for_summary(mask_gt, mode='mask', n_idx_batch=1, nlabels=nlabels)
+    gt3 = prepare_tensor_for_summary(mask_gt, mode='mask', n_idx_batch=2, nlabels=nlabels)
+    
+    pred1 = prepare_tensor_for_summary(mask, mode='mask', n_idx_batch=0, nlabels=nlabels)
+    pred2 = prepare_tensor_for_summary(mask, mode='mask', n_idx_batch=1, nlabels=nlabels)
+    pred3 = prepare_tensor_for_summary(mask, mode='mask', n_idx_batch=2, nlabels=nlabels)
+    
+    img1 = prepare_tensor_for_summary(images_sd, mode='image', n_idx_batch=0, nlabels=nlabels)
+    img2 = prepare_tensor_for_summary(images_sd, mode='image', n_idx_batch=1, nlabels=nlabels)
+    img3 = prepare_tensor_for_summary(images_sd, mode='image', n_idx_batch=2, nlabels=nlabels)
+    
+    tf.summary.image('example_labels_true', tf.concat([gt1, gt2, gt3], axis=0))
+    tf.summary.image('example_labels_pred', tf.concat([pred1, pred2, pred3], axis=0))
+    tf.summary.image('example_images', tf.concat([img1, img2, img3], axis=0))
+
+    return supervised_loss, mean_dice, invariance_loss_sd, invariance_loss_td, cycle_loss_sd, cycle_loss_td
 
 # ================================================================
 # ================================================================
