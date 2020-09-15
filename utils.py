@@ -537,3 +537,16 @@ def do_data_augmentation(images,
             images_[i,:,:] = images_[i,:,:] + n
             
     return images_, labels_
+
+# =========================================
+# exponential moving average
+# =========================================
+def exponential_moving_average(list_values, window):
+    
+    weights = np.exp(np.linspace(-1.0, 0.0, window))
+    weights = weights / np.sum(weights)
+    
+    ema = np.convolve(list_values, weights)[:len(list_values)]
+    ema[:window] = ema[window]
+    
+    return ema

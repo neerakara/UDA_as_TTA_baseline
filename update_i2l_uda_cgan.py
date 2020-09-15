@@ -164,7 +164,7 @@ def run_uda_training(log_dir,
         # ================================================================
         # merge all summaries
         # ================================================================
-        summary = tf.summary.merge_all()
+        summary_scalars = tf.summary.merge_all()
         
         # ================================================================
         # divide the vars into segmentation network, normalization network and the discriminator network
@@ -226,9 +226,22 @@ def run_uda_training(log_dir,
                                                        d_td_logits_fake,
                                                        nlabels = exp_config.nlabels,
                                                        loss_type = exp_config.loss_type_i2l)
+        
+        # ================================================================
+        # add ops for adding image summary to tensorboard
+        # ================================================================
+        summary_images = model.write_image_summary_uda_cgan(predicted_seg_sd_logits,
+                                                            labels_sd_pl,
+                                                            images_sd_pl,
+                                                            images_td_pl,
+                                                            images_sd_to_td,
+                                                            images_td_to_sd,
+                                                            images_sd_to_td_to_sd,
+                                                            images_td_to_sd_to_td,
+                                                            exp_config.nlabels)
                               
         # ================================================================
-        # build the summary Tensor based on the TF collection of Summaries.
+        # build the summary Tensor based on the TF collection of Summaries
         # ================================================================
         if exp_config.debug: print('creating summary op...')
 
@@ -249,7 +262,12 @@ def run_uda_training(log_dir,
         sess = tf.Session()
 
         # ================================================================
-        # create a summary writer
+        # create a file writer object 
+        # This writes Summary protocol buffers to event files.
+        # https://github.com/tensorflow/docs/blob/r1.12/site/en/api_docs/python/tf/summary/FileWriter.md
+        # The FileWriter class provides a mechanism to create an event file in a given directory and add summaries and events to it.
+        # The class updates the file contents asynchronously.
+        # This allows a training program to call methods to add data to the file directly from the training loop, without slowing down training.
         # ================================================================
         summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
@@ -358,6 +376,7 @@ def run_uda_training(log_dir,
         # ================================================================
         step = 0
         lowest_loss = 10000.0
+        validation_total_loss_list = []
 
         while (step < exp_config.max_steps):
                 
@@ -390,10 +409,9 @@ def run_uda_training(log_dir,
                 # ===========================
                 # write the summaries and print an overview fairly often
                 # ===========================
-                if (step+1) % exp_config.summary_writing_frequency == 0:                                        
+                if step % exp_config.summary_writing_frequency == 0:                                        
                     logging.info('============== Updating summary at step %d ' % step) 
-                    summary_str = sess.run(summary, feed_dict = feed_dict)
-                    summary_writer.add_summary(summary_str, step)
+                    summary_writer.add_summary(sess.run(summary_scalars, feed_dict = feed_dict), step)
                     summary_writer.flush()
                     
                 # ===========================
@@ -410,7 +428,9 @@ def run_uda_training(log_dir,
                                                                                                                                              images_sd_tr,
                                                                                                                                              labels_sd_tr,
                                                                                                                                              images_td_tr,
-                                                                                                                                             exp_config.batch_size)                    
+                                                                                                                                             exp_config.batch_size)
+
+                    
                     # ===========================
                     # total cgan loss
                     # ===========================
@@ -425,7 +445,7 @@ def run_uda_training(log_dir,
                     train_total_loss = train_loss_seg + train_loss_cgan
                     
                     # ===========================
-                    # update tensorboard summary
+                    # update tensorboard summary of scalars
                     # ===========================                    
                     tr_summary_msg = sess.run(tr_summary, feed_dict={tr_error_seg: train_loss_seg,
                                                                      tr_dice: train_dice,
@@ -473,9 +493,10 @@ def run_uda_training(log_dir,
                     # total cgan loss + seg loss
                     # ===========================                    
                     val_total_loss = val_loss_seg + val_loss_cgan
+                    validation_total_loss_list.append(val_total_loss)
                     
                     # ===========================
-                    # update tensorboard summary
+                    # update tensorboard summary of scalars
                     # ===========================
                     vl_summary_msg = sess.run(vl_summary, feed_dict={vl_error_seg: val_loss_seg,
                                                                      vl_dice: val_dice,
@@ -487,11 +508,27 @@ def run_uda_training(log_dir,
                                                                      vl_error_total: val_total_loss})
                     
                     summary_writer.add_summary(vl_summary_msg, step)
+                    
+                    # ===========================
+                    # update tensorboard summary of images
+                    # ===========================          
+                    summary_writer.add_summary(sess.run(summary_images, feed_dict = {images_sd_pl: x_sd,
+                                                                                     labels_sd_pl: y_sd,
+                                                                                     images_td_pl: x_td,
+                                                                                     training_pl: False}), step)    
+                    summary_writer.flush()   
 
                     # ===========================
                     # save model if the val dice is the best yet
-                    # ===========================        
-                    if val_total_loss < lowest_loss:
+                    # ===========================       
+                    window_length = 5
+                    if len(validation_total_loss_list) < window_length:
+                        expo_moving_avg_loss_value = validation_total_loss_list[-1]
+                    else:                        
+                        expo_moving_avg_loss_value = utils.exponential_moving_average(validation_total_loss_list,
+                                                                                      window = window_length)[-1]
+                        
+                    if expo_moving_avg_loss_value < lowest_loss:
                         lowest_loss = val_total_loss
                         lowest_loss_file = os.path.join(log_dir, 'models/lowest_loss.ckpt')
                         saver_lowest_loss.save(sess, lowest_loss_file, global_step=step)
@@ -550,8 +587,8 @@ def do_eval(sess,
         loss_seg_ii += loss_seg
         loss_invar_sd_ii += loss_invar_sd
         loss_invar_td_ii += loss_invar_td
-        loss_cycle_sd_ii += loss_invar_sd
-        loss_cycle_td_ii += loss_invar_td
+        loss_cycle_sd_ii += loss_cycle_sd
+        loss_cycle_td_ii += loss_cycle_td
         dice_ii += fg_dice
         num_batches += 1
 

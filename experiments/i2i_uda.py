@@ -67,8 +67,8 @@ learning_rate = 1e-4
 loss_type_i2l = 'dice'
 
 debug = False
-max_steps = 50001
+max_steps = 30001
 summary_writing_frequency = 100
-train_eval_frequency = 1000
-val_eval_frequency = 1000
+train_eval_frequency = 5000
+val_eval_frequency = 250
 save_frequency = 1000

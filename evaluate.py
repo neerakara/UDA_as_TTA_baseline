@@ -106,7 +106,7 @@ def predict_segmentation(subject_name,
         if exp_config.uda is True:
             logging.info('============================================================')        
             path_to_model = sys_config.log_root + exp_config.expname_uda + '/models/'
-            checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'lowest_loss.ckpt')
+            checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'lowest_loss.ckpt') #lowest_loss
             logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
             saver_i2l.restore(sess, checkpoint_path)
         
@@ -188,7 +188,7 @@ def main():
     # ===================================
     # read the test images
     # ===================================
-    test_dataset_name = exp_config.test_dataset
+    test_dataset_name = 'HCPT1' # exp_config.test_dataset
     
     if test_dataset_name is 'HCPT1':
         logging.info('Reading HCPT1 images...')    
