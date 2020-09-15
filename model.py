@@ -191,7 +191,7 @@ def evaluate_losses(logits,
 
 # ================================================================
 # ================================================================
-def evaluation_i2l_uda_feature_invariance(logits_sd,
+def evaluation_i2l_uda_invariant_features(logits_sd,
                                           labels_sd,
                                           images_sd,
                                           d_logits_td,
@@ -210,29 +210,27 @@ def evaluation_i2l_uda_feature_invariance(logits_sd,
     # =================
     invariance_loss = loss_invariance(d_logits_td)
     
+    return supervised_loss, mean_dice, invariance_loss
+
+# ================================================================
+# ================================================================
+def write_image_summary_uda_invariant_features(logits_sd,
+                                               labels_sd,
+                                               images_sd,
+                                               nlabels):  
     # =================
     # write some segmentations to tensorboard
     # =================
     mask = tf.argmax(tf.nn.softmax(logits_sd, axis=-1), axis=-1)
     mask_gt = labels_sd
     
-    gt1 = prepare_tensor_for_summary(mask_gt, mode='mask', n_idx_batch=0, nlabels=nlabels)
-    gt2 = prepare_tensor_for_summary(mask_gt, mode='mask', n_idx_batch=1, nlabels=nlabels)
-    gt3 = prepare_tensor_for_summary(mask_gt, mode='mask', n_idx_batch=2, nlabels=nlabels)
+    gt = prepare_tensor_for_summary(mask_gt, mode='mask', n_idx_batch=0, nlabels=nlabels)    
+    pr = prepare_tensor_for_summary(mask, mode='mask', n_idx_batch=0, nlabels=nlabels)
+    im = prepare_tensor_for_summary(images_sd, mode='image', n_idx_batch=0, nlabels=nlabels)
     
-    pred1 = prepare_tensor_for_summary(mask, mode='mask', n_idx_batch=0, nlabels=nlabels)
-    pred2 = prepare_tensor_for_summary(mask, mode='mask', n_idx_batch=1, nlabels=nlabels)
-    pred3 = prepare_tensor_for_summary(mask, mode='mask', n_idx_batch=2, nlabels=nlabels)
-    
-    img1 = prepare_tensor_for_summary(images_sd, mode='image', n_idx_batch=0, nlabels=nlabels)
-    img2 = prepare_tensor_for_summary(images_sd, mode='image', n_idx_batch=1, nlabels=nlabels)
-    img3 = prepare_tensor_for_summary(images_sd, mode='image', n_idx_batch=2, nlabels=nlabels)
-    
-    tf.summary.image('example_labels_true', tf.concat([gt1, gt2, gt3], axis=0))
-    tf.summary.image('example_labels_pred', tf.concat([pred1, pred2, pred3], axis=0))
-    tf.summary.image('example_images', tf.concat([img1, img2, img3], axis=0))
-
-    return supervised_loss, mean_dice, invariance_loss
+    return tf.summary.merge([tf.summary.image('label_true', gt),
+                             tf.summary.image('label_pred', pr),
+                             tf.summary.image('image_sd', im)])
 
 # ================================================================
 # ================================================================

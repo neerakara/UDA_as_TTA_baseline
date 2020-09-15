@@ -56,8 +56,17 @@ image_depth_hcp = 256
 image_depth_caltech = 256
 image_depth_stanford = 132
 target_resolution_brain = (0.7, 0.7)
-nlabels = 15
+target_resolution_prostate = (0.625, 0.625)
+image_depth_prostate = 32
+nlabels_brain = 15
+nlabels_prostate = 3
 batch_size = 8
+
+if train_dataset in ['CALTECH', 'STANFORD', 'HCPT1', 'HCPT2', 'IXI']:
+    nlabels = nlabels_brain
+
+elif train_dataset in ['NCI', 'PIRAD_ERC', 'PROMISE']:
+    nlabels = nlabels_prostate
 
 # ======================================================================
 # training settings

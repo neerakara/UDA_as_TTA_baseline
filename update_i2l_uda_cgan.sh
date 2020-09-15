@@ -9,7 +9,7 @@
 ## SBATCH is recognized even though there is a # in front of it. If we want to comment SBATCH, we need ## in front of it. 
 #SBATCH  --output=logs/%j.out
 #SBATCH  --gres=gpu:1
-#SBATCH  --mem=60G
+#SBATCH  --mem=50G
 
 # activate virtual environment
 source /usr/bmicnas01/data-biwi-01/nkarani/softwares/anaconda/installation_dir/bin/activate tf_v1_12

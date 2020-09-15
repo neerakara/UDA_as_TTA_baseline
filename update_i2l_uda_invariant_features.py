@@ -28,8 +28,15 @@ import numpy as np
 import model as model
 import config.system as sys_config
 import utils
+
+# import data readers
 import data.data_hcp as data_hcp
 import data.data_abide as data_abide
+import data.data_nci as data_nci
+import data.data_promise as data_promise
+import data.data_pirad_erc as data_pirad_erc
+import data.data_acdc as data_acdc
+import data.data_rvsc as data_rvsc
 
 # ==================================================================
 # Set the config file of the experiment you want to run here:
@@ -131,7 +138,7 @@ def run_uda_training(log_dir,
         # ================================================================
         # merge all summaries
         # ================================================================
-        summary = tf.summary.merge_all()
+        summary_scalars = tf.summary.merge_all()
         
         # ================================================================
         # divide the vars into segmentation network, normalization network and the discriminator network
@@ -166,12 +173,20 @@ def run_uda_training(log_dir,
         # ================================================================
         # add ops for model evaluation
         # ================================================================
-        eval_loss = model.evaluation_i2l_uda_feature_invariance(predicted_seg_sd_logits,
+        eval_loss = model.evaluation_i2l_uda_invariant_features(predicted_seg_sd_logits,
                                                                 labels_sd_pl,
                                                                 images_sd_pl,
                                                                 d_logits_td,
                                                                 nlabels = exp_config.nlabels,
                                                                 loss_type = exp_config.loss_type_i2l)
+        
+        # ================================================================
+        # add ops for adding image summary to tensorboard
+        # ================================================================
+        summary_images = model.write_image_summary_uda_invariant_features(predicted_seg_sd_logits,
+                                                                          labels_sd_pl,
+                                                                          images_sd_pl,
+                                                                          exp_config.nlabels)
                 
         # ================================================================
         # build the summary Tensor based on the TF collection of Summaries.
@@ -195,7 +210,12 @@ def run_uda_training(log_dir,
         sess = tf.Session()
 
         # ================================================================
-        # create a summary writer
+        # create a file writer object 
+        # This writes Summary protocol buffers to event files.
+        # https://github.com/tensorflow/docs/blob/r1.12/site/en/api_docs/python/tf/summary/FileWriter.md
+        # The FileWriter class provides a mechanism to create an event file in a given directory and add summaries and events to it.
+        # The class updates the file contents asynchronously.
+        # This allows a training program to call methods to add data to the file directly from the training loop, without slowing down training.
         # ================================================================
         summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
@@ -271,6 +291,7 @@ def run_uda_training(log_dir,
         # ================================================================
         step = 0
         lowest_loss = 10000.0
+        validation_total_loss_list = []
 
         while (step < exp_config.max_steps):
                 
@@ -303,8 +324,7 @@ def run_uda_training(log_dir,
                 # ===========================
                 if (step+1) % exp_config.summary_writing_frequency == 0:                                        
                     logging.info('============== Updating summary at step %d ' % step) 
-                    summary_str = sess.run(summary, feed_dict = feed_dict)
-                    summary_writer.add_summary(summary_str, step)
+                    summary_writer.add_summary(sess.run(summary_scalars, feed_dict = feed_dict), step)
                     summary_writer.flush()
                     
                 # ===========================
@@ -326,7 +346,9 @@ def run_uda_training(log_dir,
                     # total training loss
                     train_total_loss = train_loss_seg + exp_config.lambda_uda * train_loss_invariance
                     
-                    # write summary
+                    # ===========================
+                    # update tensorboard summary of scalars
+                    # ===========================  
                     tr_summary_msg = sess.run(tr_summary, feed_dict={tr_error_seg: train_loss_seg,
                                                                      tr_dice: train_dice,
                                                                      tr_error_invariance: train_loss_invariance,
@@ -359,18 +381,36 @@ def run_uda_training(log_dir,
                     
                     # total val loss
                     val_total_loss = val_loss_seg + exp_config.lambda_uda * val_loss_invariance
+                    validation_total_loss_list.append(val_total_loss)
                     
-                    # write summary
+                    # ===========================
+                    # update tensorboard summary of scalars
+                    # ===========================  
                     vl_summary_msg = sess.run(vl_summary, feed_dict={vl_error_seg: val_loss_seg,
                                                                      vl_dice: val_dice,
                                                                      vl_error_invariance: val_loss_invariance,
                                                                      vl_error_total: val_total_loss})                
                     summary_writer.add_summary(vl_summary_msg, step)
+                    
+                    # ===========================
+                    # update tensorboard summary of images
+                    # ===========================          
+                    summary_writer.add_summary(sess.run(summary_images, feed_dict = {images_sd_pl: x_sd,
+                                                                                     labels_sd_pl: y_sd,
+                                                                                     training_pl: False}), step)    
+                    summary_writer.flush()   
 
                     # ===========================
                     # save model if the val dice is the best yet
                     # ===========================
-                    if val_total_loss < lowest_loss:
+                    window_length = 5
+                    if len(validation_total_loss_list) < window_length:
+                        expo_moving_avg_loss_value = validation_total_loss_list[-1]
+                    else:                        
+                        expo_moving_avg_loss_value = utils.exponential_moving_average(validation_total_loss_list,
+                                                                                      window = window_length)[-1]
+                        
+                    if expo_moving_avg_loss_value < lowest_loss:
                         lowest_loss = val_total_loss
                         lowest_loss_file = os.path.join(log_dir, 'models/lowest_loss.ckpt')
                         saver_lowest_loss.save(sess, lowest_loss_file, global_step=step)
@@ -512,6 +552,20 @@ def main():
                                                               target_resolution = exp_config.target_resolution_brain)
         imvl_sd, gtvl_sd = [ data_brain_val_sd['images'], data_brain_val_sd['labels'] ]
         
+    # PROSTATE
+    elif exp_config.train_dataset is 'NCI':
+        logging.info('Reading NCI images...')    
+        logging.info('Data root directory: ' + sys_config.orig_data_root_nci)
+        data_pros = data_nci.load_and_maybe_process_data(input_folder = sys_config.orig_data_root_nci,
+                                                         preprocessing_folder = sys_config.preproc_folder_nci,
+                                                         size = exp_config.image_size,
+                                                         target_resolution = exp_config.target_resolution_prostate,
+                                                         force_overwrite = False,
+                                                         cv_fold_num = 1)
+        
+        imtr_sd, gttr_sd = [ data_pros['images_train'], data_pros['masks_train'] ]
+        imvl_sd, gtvl_sd = [ data_pros['images_validation'], data_pros['masks_validation'] ]
+        
     # ============================
     # Load TD unlabelled images
     # ============================   
@@ -566,6 +620,44 @@ def main():
                                                                    depth = exp_config.image_depth_caltech,
                                                                    target_resolution = exp_config.target_resolution_brain)
         imvl_td = data_brain_val_td['images']
+        
+    elif exp_config.test_dataset is 'PIRAD_ERC':
+        
+        logging.info('Reading PIRAD_ERC images...')    
+        logging.info('Data root directory: ' + sys_config.orig_data_root_pirad_erc)
+        
+        data_pros_train = data_pirad_erc.load_data(input_folder = sys_config.orig_data_root_pirad_erc,
+                                                   preproc_folder = sys_config.preproc_folder_pirad_erc,
+                                                   idx_start = 40,
+                                                   idx_end = 68,
+                                                   size = exp_config.image_size,
+                                                   target_resolution = exp_config.target_resolution_prostate,
+                                                   labeller = 'ek',
+                                                   force_overwrite = False) 
+        
+        data_pros_val = data_pirad_erc.load_data(input_folder = sys_config.orig_data_root_pirad_erc,
+                                                 preproc_folder = sys_config.preproc_folder_pirad_erc,
+                                                 idx_start = 20,
+                                                 idx_end = 40,
+                                                 size = exp_config.image_size,
+                                                 target_resolution = exp_config.target_resolution_prostate,
+                                                 labeller = 'ek',
+                                                 force_overwrite = False)
+
+        imtr_td = data_pros_train['images']
+        imvl_td = data_pros_val['images']
+        
+    elif exp_config.test_dataset is 'PROMISE':
+        logging.info('Reading PROMISE images...')    
+        logging.info('Data root directory: ' + sys_config.orig_data_root_promise)
+        data_pros = data_promise.load_and_maybe_process_data(input_folder = sys_config.orig_data_root_promise,
+                                                             preprocessing_folder = sys_config.preproc_folder_promise,
+                                                             size = exp_config.image_size,
+                                                             target_resolution = exp_config.target_resolution_prostate,
+                                                             force_overwrite = False,
+                                                             cv_fold_num = 2)
+        imtr_td = data_pros['images_train']
+        imvl_td = data_pros['images_validation']
     
     # ================================================================
     # create a text file for writing results

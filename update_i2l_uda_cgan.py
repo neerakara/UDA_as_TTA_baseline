@@ -23,8 +23,15 @@ import numpy as np
 import model as model
 import config.system as sys_config
 import utils
+
+# import data readers
 import data.data_hcp as data_hcp
 import data.data_abide as data_abide
+import data.data_nci as data_nci
+import data.data_promise as data_promise
+import data.data_pirad_erc as data_pirad_erc
+import data.data_acdc as data_acdc
+import data.data_rvsc as data_rvsc
 
 # ==================================================================
 # Set the config file of the experiment you want to run here:
@@ -684,6 +691,20 @@ def main():
                                                               target_resolution = exp_config.target_resolution_brain)
         imvl_sd, gtvl_sd = [ data_brain_val_sd['images'], data_brain_val_sd['labels'] ]
         
+    # PROSTATE
+    elif exp_config.train_dataset is 'NCI':
+        logging.info('Reading NCI images...')    
+        logging.info('Data root directory: ' + sys_config.orig_data_root_nci)
+        data_pros = data_nci.load_and_maybe_process_data(input_folder = sys_config.orig_data_root_nci,
+                                                         preprocessing_folder = sys_config.preproc_folder_nci,
+                                                         size = exp_config.image_size,
+                                                         target_resolution = exp_config.target_resolution_prostate,
+                                                         force_overwrite = False,
+                                                         cv_fold_num = 1)
+        
+        imtr_sd, gttr_sd = [ data_pros['images_train'], data_pros['masks_train'] ]
+        imvl_sd, gtvl_sd = [ data_pros['images_validation'], data_pros['masks_validation'] ]
+        
     # ============================
     # Load TD unlabelled images
     # ============================   
@@ -738,6 +759,44 @@ def main():
                                                                    depth = exp_config.image_depth_caltech,
                                                                    target_resolution = exp_config.target_resolution_brain)
         imvl_td = data_brain_val_td['images']
+        
+    elif exp_config.test_dataset is 'PIRAD_ERC':
+        
+        logging.info('Reading PIRAD_ERC images...')    
+        logging.info('Data root directory: ' + sys_config.orig_data_root_pirad_erc)
+        
+        data_pros_train = data_pirad_erc.load_data(input_folder = sys_config.orig_data_root_pirad_erc,
+                                                   preproc_folder = sys_config.preproc_folder_pirad_erc,
+                                                   idx_start = 40,
+                                                   idx_end = 68,
+                                                   size = exp_config.image_size,
+                                                   target_resolution = exp_config.target_resolution_prostate,
+                                                   labeller = 'ek',
+                                                   force_overwrite = False) 
+        
+        data_pros_val = data_pirad_erc.load_data(input_folder = sys_config.orig_data_root_pirad_erc,
+                                                 preproc_folder = sys_config.preproc_folder_pirad_erc,
+                                                 idx_start = 20,
+                                                 idx_end = 40,
+                                                 size = exp_config.image_size,
+                                                 target_resolution = exp_config.target_resolution_prostate,
+                                                 labeller = 'ek',
+                                                 force_overwrite = False)
+
+        imtr_td = data_pros_train['images']
+        imvl_td = data_pros_val['images']
+        
+    elif exp_config.test_dataset is 'PROMISE':
+        logging.info('Reading PROMISE images...')    
+        logging.info('Data root directory: ' + sys_config.orig_data_root_promise)
+        data_pros = data_promise.load_and_maybe_process_data(input_folder = sys_config.orig_data_root_promise,
+                                                             preprocessing_folder = sys_config.preproc_folder_promise,
+                                                             size = exp_config.image_size,
+                                                             target_resolution = exp_config.target_resolution_prostate,
+                                                             force_overwrite = False,
+                                                             cv_fold_num = 2)
+        imtr_td = data_pros['images_train']
+        imvl_td = data_pros['images_validation']
     
     # ================================================================
     # create a text file for writing results
