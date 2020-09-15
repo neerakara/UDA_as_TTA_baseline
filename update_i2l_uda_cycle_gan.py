@@ -36,7 +36,7 @@ import data.data_rvsc as data_rvsc
 # ==================================================================
 # Set the config file of the experiment you want to run here:
 # ==================================================================
-from experiments import i2i_uda as exp_config
+from experiments import uda_cycle_gan as exp_config
 
 # setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
@@ -529,7 +529,7 @@ def run_uda_training(log_dir,
                     # save model if the val dice is the best yet
                     # ===========================       
                     window_length = 5
-                    if len(validation_total_loss_list) < window_length:
+                    if len(validation_total_loss_list) < window_length + 1:
                         expo_moving_avg_loss_value = validation_total_loss_list[-1]
                     else:                        
                         expo_moving_avg_loss_value = utils.exponential_moving_average(validation_total_loss_list,

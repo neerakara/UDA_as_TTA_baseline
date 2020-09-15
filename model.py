@@ -90,7 +90,7 @@ def transform_images(images,
 def discriminator(images,
                   exp_config,
                   training_pl,
-                  scope_name = 'dicriminator',
+                  scope_name = 'discriminator',
                   scope_reuse = False):
     
     logits = exp_config.model_handle_discriminator(images,

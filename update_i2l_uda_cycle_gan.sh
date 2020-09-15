@@ -15,4 +15,4 @@
 source /usr/bmicnas01/data-biwi-01/nkarani/softwares/anaconda/installation_dir/bin/activate tf_v1_12
 
 ## EXECUTION OF PYTHON CODE:
-python /usr/bmicnas01/data-biwi-01/nkarani/projects/dg_seg/methods/baselines/uda/adv_feature_classifier/update_i2l_uda_cgan.py
+python /usr/bmicnas01/data-biwi-01/nkarani/projects/dg_seg/methods/baselines/uda/adv_feature_classifier/update_i2l_uda_cycle_gan.py

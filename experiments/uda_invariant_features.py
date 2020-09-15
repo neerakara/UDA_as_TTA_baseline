@@ -39,13 +39,8 @@ run_num_uda = 1
 run_str_uda = '_r' + str(run_num_uda)
 
 model_handle_discriminator = model_zoo.discriminator
-model_handle_generator = model_zoo.generator
-lambda_cgan1 = 1.0
-lambda_cgan2 = 1.0
-lambda_cgan3 = 10.0
-lambda_cgan4 = 10.0
 
-expname_uda = expname_i2l + '/uda_cgan/' + ts_str + lambda_str + run_str_uda
+expname_uda = expname_i2l + '/uda_invariant_features/' + ts_str + lambda_str + run_str_uda
 
 # ======================================================================
 # data settings
