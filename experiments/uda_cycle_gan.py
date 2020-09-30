@@ -9,6 +9,9 @@ test_dataset = 'CALTECH' # CALTECH / HCPT2
 run_num = 1
 uda = True
 normalize = False
+whole_gland_results = False
+evaluate_td = False
+discriminator_update_freq = 10
 
 # ====================================================
 # normalizer architecture
@@ -33,6 +36,7 @@ expname_i2l = 'i2l/' + tr_str + run_str
 # uda dir name
 # ====================================================
 ts_str = 'ts' + test_dataset
+settings_str = '_D_update_freq' + str(discriminator_update_freq)
 run_num_uda = 1
 run_str_uda = '_r' + str(run_num_uda)
 
@@ -43,7 +47,7 @@ lambda_cgan2 = 1.0
 lambda_cgan3 = 10.0
 lambda_cgan4 = 10.0
 
-expname_uda = expname_i2l + '/uda_cycle_gan/' + ts_str + run_str_uda
+expname_uda = expname_i2l + '/uda_cycle_gan/' + ts_str + settings_str + run_str_uda
 
 # ======================================================================
 # data settings

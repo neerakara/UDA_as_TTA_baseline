@@ -7,10 +7,10 @@
 ## SLURM Variables:
 #SBATCH  --output=logs/%j.out
 #SBATCH  --gres=gpu:1
-#SBATCH  --mem=20G
+#SBATCH  --mem=30G
 
 # activate virtual environment
 source /usr/bmicnas01/data-biwi-01/nkarani/softwares/anaconda/installation_dir/bin/activate tf_v1_12
 
 ## EXECUTION OF PYTHON CODE:
-python /usr/bmicnas01/data-biwi-01/nkarani/projects/dg_seg/methods/baselines/uda/adv_feature_classifier/evaluate.py
+python /usr/bmicnas01/data-biwi-01/nkarani/projects/dg_seg/methods/baselines/uda/adv_feature_classifier/evaluate_cycle_gan.py

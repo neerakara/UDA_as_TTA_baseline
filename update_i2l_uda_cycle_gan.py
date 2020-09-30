@@ -410,8 +410,10 @@ def run_uda_training(log_dir,
                 # ================================================               
                 sess.run(train_i2l_op, feed_dict=feed_dict)
                 sess.run(train_generators_op, feed_dict=feed_dict)
-                sess.run(train_discriminator_sd_op, feed_dict=feed_dict)
-                sess.run(train_discriminator_td_op, feed_dict=feed_dict)
+                # update discriminators less frequently
+                if step % exp_config.discriminator_update_freq == 0:                                        
+                    sess.run(train_discriminator_sd_op, feed_dict=feed_dict)
+                    sess.run(train_discriminator_td_op, feed_dict=feed_dict)
                                             
                 # ===========================
                 # write the summaries and print an overview fairly often

@@ -278,13 +278,13 @@ def run_uda_training(log_dir,
 
         # ================================================================
         # Restore the segmentation network parameters and the pre-trained i2i mapper parameters
-        # After the adaptation for the 1st TD subject is done, start the adaptation for the subsequent subjects with those parameters
         # ================================================================
-        logging.info('============================================================')        
-        path_to_model = sys_config.log_root + exp_config.expname_i2l + '/models/'
-        checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'best_dice.ckpt')
-        logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
-        saver_lowest_loss.restore(sess, checkpoint_path)
+        if exp_config.train_from_scratch is False:
+            logging.info('============================================================')        
+            path_to_model = sys_config.log_root + exp_config.expname_i2l + '/models/'
+            checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'best_dice.ckpt')
+            logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
+            saver_lowest_loss.restore(sess, checkpoint_path)
                                
         # ================================================================
         # run training steps

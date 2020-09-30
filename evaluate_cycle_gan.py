@@ -21,14 +21,15 @@ import sklearn.metrics as met
 # ==================================================================
 # Set the config file of the experiment you want to run here:
 # ==================================================================
-from experiments import uda_invariant_features as exp_config
+from experiments import uda_cycle_gan as exp_config
     
 # ==================================================================
 # main function for training
 # ==================================================================
 def predict_segmentation(subject_name,
                          image,
-                         normalize = True):
+                         normalize = True,
+                         evaluate_target_domain = True):
     
     # ================================================================
     # build the TF graph
@@ -43,32 +44,87 @@ def predict_segmentation(subject_name,
                                    name = 'images')
 
         # ================================================================
-        # insert a normalization module in front of the segmentation network
-        # the normalization module is trained for each test image
         # ================================================================
-        images_normalized, added_residual = model.normalize(images_pl,
-                                                            exp_config,
-                                                            training_pl = tf.constant(False, dtype=tf.bool))
+        if evaluate_target_domain is False:
+            images_sd_to_td = model.transform_images(images_pl,
+                                                     exp_config,
+                                                     training_pl = tf.constant(False, dtype=tf.bool),
+                                                     scope_name = 'generator_sd_to_td',
+                                                     scope_reuse = False)
+            
+            # ================================================================
+            # insert a normalization module in front of the segmentation network
+            # the normalization module is trained for each test image
+            # ================================================================
+            images_normalized, added_residual = model.normalize(images_sd_to_td,
+                                                                exp_config,
+                                                                training_pl = tf.constant(False, dtype=tf.bool))
+            
+            # ================================================================
+            # build the graph that computes predictions from the inference model
+            # ================================================================
+            logits, softmax, preds = model.predict_i2l(images_normalized,
+                                                       exp_config,
+                                                       training_pl = tf.constant(False, dtype=tf.bool))
+            
+            # ================================================================
+            # divide the vars into segmentation network, normalization network and the discriminator network
+            # ================================================================
+            i2l_vars = []
+            normalization_vars = []
+            generator_vars = []
+            
+            for v in tf.global_variables():
+                var_name = v.name        
+                if 'image_normalizer' in var_name:
+                    normalization_vars.append(v)
+                    i2l_vars.append(v) # the normalization vars also need to be restored from the pre-trained i2l mapper
+                elif 'i2l_mapper' in var_name:
+                    i2l_vars.append(v)
+                elif 'generator' in var_name:
+                    generator_vars.append(v)
+                    
+            # ================================================================
+            # create savers
+            # ================================================================
+            saver_i2l = tf.train.Saver(var_list = i2l_vars)
+            saver_normalizer = tf.train.Saver(var_list = normalization_vars) 
+            saver_generators = tf.train.Saver(var_list = generator_vars)
         
-        # ================================================================
-        # build the graph that computes predictions from the inference model
-        # ================================================================
-        logits, softmax, preds = model.predict_i2l(images_normalized,
-                                                   exp_config,
-                                                   training_pl = tf.constant(False, dtype=tf.bool))
+        else:
+            # ================================================================
+            # insert a normalization module in front of the segmentation network
+            # the normalization module is trained for each test image
+            # ================================================================
+            images_normalized, added_residual = model.normalize(images_pl,
+                                                                exp_config,
+                                                                training_pl = tf.constant(False, dtype=tf.bool))
+        
+            # ================================================================
+            # build the graph that computes predictions from the inference model
+            # ================================================================
+            logits, softmax, preds = model.predict_i2l(images_normalized,
+                                                       exp_config,
+                                                       training_pl = tf.constant(False, dtype=tf.bool))
                         
-        # ================================================================
-        # divide the vars into segmentation network and normalization network
-        # ================================================================
-        i2l_vars = []
-        normalization_vars = []
+            # ================================================================
+            # divide the vars into segmentation network and normalization network
+            # ================================================================
+            i2l_vars = []
+            normalization_vars = []
         
-        for v in tf.global_variables():
-            var_name = v.name        
-            i2l_vars.append(v)
-            if 'image_normalizer' in var_name:
-                normalization_vars.append(v)
-                                
+            for v in tf.global_variables():
+                var_name = v.name        
+                i2l_vars.append(v)
+                if 'image_normalizer' in var_name:
+                    normalization_vars.append(v)
+                    
+            # ================================================================
+            # create saver
+            # ================================================================
+            saver_i2l = tf.train.Saver(var_list = i2l_vars)
+            saver_normalizer = tf.train.Saver(var_list = normalization_vars) 
+                                            
         # ================================================================
         # add init ops
         # ================================================================
@@ -78,12 +134,6 @@ def predict_segmentation(subject_name,
         # create session
         # ================================================================
         sess = tf.Session()
-
-        # ================================================================
-        # create saver
-        # ================================================================
-        saver_i2l = tf.train.Saver(var_list = i2l_vars)
-        saver_normalizer = tf.train.Saver(var_list = normalization_vars)        
                 
         # ================================================================
         # freeze the graph before execution
@@ -102,15 +152,19 @@ def predict_segmentation(subject_name,
             logging.info('============================================================')        
             path_to_model = sys_config.log_root + exp_config.expname_i2l + '/models/'
             checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'best_dice.ckpt')
-            logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
             saver_i2l.restore(sess, checkpoint_path)
             
         if exp_config.uda is True:
             logging.info('============================================================')        
             path_to_model = sys_config.log_root + exp_config.expname_uda + '/models/'
             checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'lowest_loss.ckpt') #lowest_loss
-            logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
             saver_i2l.restore(sess, checkpoint_path)
+
+            if evaluate_target_domain is False:            
+                # also save generators at the best loss points
+                path_to_model = sys_config.log_root + exp_config.expname_uda + '/models/'
+                checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'generators_at_lowest_loss.ckpt')
+                saver_generators.restore(sess, checkpoint_path)
         
         # ================================================================
         # Restore the normalization network parameters
@@ -119,7 +173,6 @@ def predict_segmentation(subject_name,
             logging.info('============================================================')
             path_to_model = os.path.join(sys_config.log_root, exp_config.expname_normalizer) + '/subject_' + subject_name + '/models/'
             checkpoint_path = utils.get_latest_model_checkpoint_path(path_to_model, 'best_score.ckpt')
-            logging.info('Restoring the trained parameters from %s...' % checkpoint_path)
             saver_normalizer.restore(sess, checkpoint_path)
             logging.info('============================================================')
         
@@ -353,7 +406,7 @@ def main():
     dice_per_label_per_subject = []
     hsd_per_label_per_subject = []
 
-    for sub_num in range(5): #(num_test_subjects): 
+    for sub_num in range(5):#(num_test_subjects): 
 
         subject_id_start_slice = np.sum(orig_data_siz_z[:sub_num])
         subject_id_end_slice = np.sum(orig_data_siz_z[:sub_num+1])
@@ -372,7 +425,8 @@ def main():
         # ==================================================================
         predicted_labels, normalized_image = predict_segmentation(subject_name,
                                                                   image,
-                                                                  exp_config.normalize)
+                                                                  exp_config.normalize,
+                                                                  exp_config.evaluate_td)
 
         # ==================================================================
         # read the original segmentation mask

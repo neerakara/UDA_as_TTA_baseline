@@ -5,10 +5,13 @@ import tensorflow as tf
 # test settings
 # ======================================================================
 train_dataset = 'HCPT1' # STANFORD / CALTECH / HCPT2 / 'HCPT1'
-test_dataset = 'CALTECH' # STANFORD / CALTECH / HCPT2
+test_dataset = 'HCPT2' # STANFORD / CALTECH / HCPT2
 run_num = 1
 uda = True
 normalize = False
+whole_gland_results = False
+evaluate_td = False
+train_from_scratch = True
 
 # ====================================================
 # normalizer architecture
@@ -33,8 +36,8 @@ expname_i2l = 'i2l/' + tr_str + run_str
 # uda dir name
 # ====================================================
 ts_str = 'ts' + test_dataset
-lambda_uda = 0.01
-lambda_str = '_lambda_uda' + str(lambda_uda)
+lambda_uda = 0.0
+lambda_str = '_lambda_uda' + str(lambda_uda) + '_train_from_scratch_' + str(train_from_scratch)
 run_num_uda = 1
 run_str_uda = '_r' + str(run_num_uda)
 
@@ -71,7 +74,7 @@ learning_rate = 1e-4
 loss_type_i2l = 'dice'
 
 debug = False
-max_steps = 30001
+max_steps = 20001
 summary_writing_frequency = 100
 train_eval_frequency = 5000
 val_eval_frequency = 250

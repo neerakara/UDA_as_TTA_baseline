@@ -65,8 +65,7 @@ def save_samples_downsampled(y,
 
     plt.savefig(savepath, bbox_inches='tight')
     plt.close()
-    
-
+        
 # ==========================================================
 # ==========================================================       
 def save_sample_prediction_results(x,
@@ -74,9 +73,10 @@ def save_sample_prediction_results(x,
                                    y_pred,
                                    gt,
                                    num_rotations,
-                                   savepath):
-    
-    ids = np.arange(48, 256-48, (256-96)//8)
+                                   savepath,
+                                   nlabels,
+                                   ids):
+
     nc = len(ids)
     nr = 5
     
@@ -84,7 +84,7 @@ def save_sample_prediction_results(x,
     gt_ = np.copy(gt)
     
     # add one pixel of each class to get consistent colors for each class in the visualization
-    for i in range(15):
+    for i in range(nlabels):
         for idx in ids:
             y_pred_[0,i,idx] = i
             gt_[0,i,idx] = i
