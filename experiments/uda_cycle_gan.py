@@ -4,13 +4,13 @@ import tensorflow as tf
 # ======================================================================
 # test settings
 # ======================================================================
-train_dataset = 'HCPT1' # CALTECH / HCPT2 / 'HCPT1'
-test_dataset = 'CALTECH' # CALTECH / HCPT2
+train_dataset = 'NCI' # CALTECH / HCPT2 / 'HCPT1'
+test_dataset = 'PIRAD_ERC' # CALTECH / HCPT2
 run_num = 1
 uda = True
 normalize = False
 whole_gland_results = False
-evaluate_td = False
+evaluate_td = True
 discriminator_update_freq = 10
 
 # ====================================================
@@ -66,9 +66,11 @@ batch_size = 8
 
 if train_dataset in ['CALTECH', 'STANFORD', 'HCPT1', 'HCPT2', 'IXI']:
     nlabels = nlabels_brain
+    target_resolution = target_resolution_brain
 
 elif train_dataset in ['NCI', 'PIRAD_ERC', 'PROMISE']:
     nlabels = nlabels_prostate
+    target_resolution = target_resolution_prostate
 
 # ======================================================================
 # training settings

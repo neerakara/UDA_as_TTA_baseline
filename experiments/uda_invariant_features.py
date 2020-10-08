@@ -4,14 +4,14 @@ import tensorflow as tf
 # ======================================================================
 # test settings
 # ======================================================================
-train_dataset = 'HCPT1' # STANFORD / CALTECH / HCPT2 / 'HCPT1'
-test_dataset = 'HCPT2' # STANFORD / CALTECH / HCPT2
+train_dataset = 'NCI' # STANFORD / CALTECH / HCPT2 / 'HCPT1'
+test_dataset = 'PIRAD_ERC' # STANFORD / CALTECH / HCPT2
 run_num = 1
 uda = True
 normalize = False
 whole_gland_results = False
 evaluate_td = False
-train_from_scratch = True
+train_from_scratch = False
 
 # ====================================================
 # normalizer architecture
@@ -36,8 +36,11 @@ expname_i2l = 'i2l/' + tr_str + run_str
 # uda dir name
 # ====================================================
 ts_str = 'ts' + test_dataset
-lambda_uda = 0.0
-lambda_str = '_lambda_uda' + str(lambda_uda) + '_train_from_scratch_' + str(train_from_scratch)
+lambda_uda = 0.0001
+if train_from_scratch is True:
+    lambda_str = '_lambda_uda' + str(lambda_uda) + '_train_from_scratch_' + str(train_from_scratch)
+else:
+    lambda_str = '_lambda_uda' + str(lambda_uda)
 run_num_uda = 1
 run_str_uda = '_r' + str(run_num_uda)
 
@@ -62,9 +65,11 @@ batch_size = 8
 
 if train_dataset in ['CALTECH', 'STANFORD', 'HCPT1', 'HCPT2', 'IXI']:
     nlabels = nlabels_brain
+    target_resolution = target_resolution_brain
 
 elif train_dataset in ['NCI', 'PIRAD_ERC', 'PROMISE']:
     nlabels = nlabels_prostate
+    target_resolution = target_resolution_prostate
 
 # ======================================================================
 # training settings
