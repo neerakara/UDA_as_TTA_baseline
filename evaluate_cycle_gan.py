@@ -208,8 +208,8 @@ def rescale_and_crop(arr,
     
     # 'target_resolution_brain' contains the resolution that the images were rescaled to, during the pre-processing.
     # we need to undo this rescaling before evaluation
-    scale_vector = [exp_config.target_resolution_brain[0] / px,
-                    exp_config.target_resolution_brain[1] / py]
+    scale_vector = [exp_config.target_resolution[0] / px,
+                    exp_config.target_resolution[1] / py]
 
     arr_list = []
     
@@ -263,7 +263,7 @@ def main():
                                                          protocol = 'T1',
                                                          size = exp_config.image_size,
                                                          depth = image_depth,
-                                                         target_resolution = exp_config.target_resolution_brain)
+                                                         target_resolution = exp_config.target_resolution)
         
         imts = data_test['images']
         name_test_subjects = data_test['patnames']
@@ -292,7 +292,7 @@ def main():
                                                          protocol = 'T2',
                                                          size = exp_config.image_size,
                                                          depth = image_depth,
-                                                         target_resolution = exp_config.target_resolution_brain)
+                                                         target_resolution = exp_config.target_resolution)
         
         imts = data_test['images']
         name_test_subjects = data_test['patnames']
@@ -322,7 +322,7 @@ def main():
                                                            protocol = 'T1',
                                                            size = exp_config.image_size,
                                                            depth = image_depth,
-                                                           target_resolution = exp_config.target_resolution_brain)        
+                                                           target_resolution = exp_config.target_resolution)        
     
         imts = data_test['images']
         name_test_subjects = data_test['patnames']
@@ -340,7 +340,7 @@ def main():
         data_test = data_nci.load_and_maybe_process_data(input_folder=sys_config.orig_data_root_nci,
                                                          preprocessing_folder=sys_config.preproc_folder_nci,
                                                          size=exp_config.image_size,
-                                                         target_resolution=exp_config.target_resolution_prostate,
+                                                         target_resolution=exp_config.target_resolution,
                                                          force_overwrite=False,
                                                          cv_fold_num = 1)
 
@@ -368,7 +368,7 @@ def main():
                                              idx_start=idx_start,
                                              idx_end=idx_end,
                                              size=exp_config.image_size,
-                                             target_resolution=exp_config.target_resolution_prostate,
+                                             target_resolution=exp_config.target_resolution,
                                              labeller='ek')
         imts = data_test['images']
         name_test_subjects = data_test['patnames']
